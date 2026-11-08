@@ -24,6 +24,7 @@ K_GRID = [10, 20, 50, 100, 200, 500, 1000]
 SIMILARITIES = ["cosine", "jaccard"]
 POPULARITY_VARIANTS = [(None, None), (None, REL_THRESHOLD), (30, None), (30, REL_THRESHOLD)]  # (window_days, min_rating)
 
+
 # Step 1: load data + characterisation + plotting
 def load_ratings(data_dir: Path) -> pd.DataFrame:
     # Columns: user, item, rating, timestamp
@@ -39,6 +40,19 @@ def load_ratings(data_dir: Path) -> pd.DataFrame:
         names=["user", "item", "rating", "timestamp"],
         dtype={"user": "int32", "item": "int32", "rating": "int8", "timestamp": "int64"},
     )
+
+
+def load_movie_ids(data_dir: Path) -> np.ndarray:
+    # All movie ids from movies.dat; this is the full catalogue that is ranked
+    movies = pd.read_csv(
+        Path(data_dir) / "movies.dat",
+        sep="::",
+        engine="python",
+        header=None,
+        names=["item", "title", "genres"],
+        encoding="latin-1",
+    )
+    return movies["item"].to_numpy()
 
 
 def summarize(ratings: pd.DataFrame) -> dict:
@@ -69,28 +83,33 @@ def make_figures(ratings: pd.DataFrame, fig_dir: Path) -> None:
     per_item = ratings.groupby("item").size().sort_values(ascending=False)
     months = pd.to_datetime(ratings["timestamp"], unit="s").dt.to_period("M")
 
+    size = (6, 3.4)  # flat figures so that four of them fit into a 2x2 grid in the report
+
     def save(name):
         plt.savefig(fig_dir / name, dpi=150, bbox_inches="tight")
         plt.close()
 
     # long tail: rank (1 = most popular) against number of ratings, log-log
     for counts, label, name in [(per_item, "Item", "ratings_per_item.png"), (per_user, "User", "ratings_per_user.png")]:
-        plt.figure()
+        plt.figure(figsize=size)
         plt.loglog(range(1, len(counts) + 1), counts.values)
         plt.xlabel(f"{label} rank")
         plt.ylabel("Number of ratings")
         plt.title(f"Ratings per {label.lower()}")
         save(name)
 
-    plt.figure()
-    ratings["rating"].value_counts().sort_index().plot(kind="bar")
+    plt.figure(figsize=size)
+    ratings["rating"].value_counts().sort_index().plot(kind="bar", rot=0)
     plt.xlabel("Rating")
     plt.ylabel("Number of ratings")
     plt.title("Rating distribution")
     save("rating_distribution.png")
 
-    plt.figure()
-    months.value_counts().sort_index().plot(kind="bar")
+    plt.figure(figsize=size)
+    per_month = months.value_counts().sort_index()
+    labels = [str(m) for m in per_month.index]
+    plt.bar(range(len(per_month)), per_month.values)
+    plt.xticks(range(0, len(per_month), 3), labels[::3], rotation=90)  # every third month, otherwise labels overlap
     plt.xlabel("Month")
     plt.ylabel("Number of ratings")
     plt.title("Activity over time")
@@ -127,7 +146,7 @@ def split_report(train, val, test) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# Step 3: Precision@10, Recall@10, NDCG@10
+# Step 3: metrics (Precision@10, Recall@10, NDCG@10, catalogue coverage)
 # https://towardsdatascience.com/mean-average-precision-at-k-map-k-clearly-explained-538d8e032d2/
 # https://insidelearningmachines.com/precisionk_and_recallk/
 def precision_at_k(ranked, relevant: set, k: int = K) -> float:
@@ -220,7 +239,7 @@ def item_knn(data, k, similarity):
     return lambda rows: (profiles[rows] @ sim_t).toarray() + 1e-9 * data.counts  # popularity breaks ties
 
 
-# step 5: evaluation
+# Step 5: evaluation
 def evaluate(score, data, eval_ratings: pd.DataFrame) -> dict:
     """Average metrics over users who have >= 1 relevant item in `eval_ratings` and a history in the fit data.
     Items a user saw during fitting are excluded; ties are broken by item order, so results are deterministic."""
@@ -250,9 +269,10 @@ def evaluate(score, data, eval_ratings: pd.DataFrame) -> dict:
     }
 
 
+# Step 6: pipeline
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--data-dir", type=Path, default=Path("data"), required=True, help="directory containing ratings.dat")
+    p.add_argument("--data-dir", type=Path, default=Path("data"), help="directory containing ratings.dat and movies.dat")
     p.add_argument("--out-dir", type=Path, default=Path("results"))
     p.add_argument("--fig-dir", type=Path, default=Path("figures"))
     p.add_argument("--seed", type=int, default=SEED)
@@ -266,16 +286,7 @@ def main() -> None:
 
     # data
     ratings = load_ratings(args.data_dir)
-    movies = pd.read_csv(
-        args.data_dir / "movies.dat",
-        sep="::",
-        engine="python",
-        header=None,
-        names=["item", "title", "genres"],
-        encoding="latin-1",
-    )
-
-    catalogue_ids = movies["item"].to_numpy()
+    catalogue_ids = load_movie_ids(args.data_dir)
     summary = summarize(ratings)
     (args.out_dir / "data_summary.json").write_text(json.dumps(summary, indent=2, default=str))
     make_figures(ratings, args.fig_dir)
@@ -305,13 +316,22 @@ def main() -> None:
 
     # final: refit on train + val with the chosen settings, evaluate once on test
     full_data = index_data(pd.concat([train, val]), catalogue_ids)
-    models = {popularity_name(w, m): most_popular(full_data, w, m) for w, m in POPULARITY_VARIANTS}
-    models[f"ItemKNN(k={best['k']}, {best['similarity']})"] = item_knn(full_data, best["k"], best["similarity"])
+    # each entry: (model, variant, similarity, k, score function)
+    models = [("Most Popular", popularity_name(w, m), "", "", most_popular(full_data, w, m)) for w, m in POPULARITY_VARIANTS]
+    models.append(("Item-based kNN", f"implicit (rating>={REL_THRESHOLD}), k and similarity chosen on validation",
+                   best["similarity"], best["k"], item_knn(full_data, best["k"], best["similarity"])))
     results = []
-    for name, score in models.items():
+    for model, variant, similarity, k, score in models:
         metrics = evaluate(score, full_data, test)
-        results.append({"model": name, "split": "test", "seed": args.seed, **metrics})
-        print(f"test {name}: " + ", ".join(f"{key}={value:.4f}" if isinstance(value, float) else f"{key}={value}" for key, value in metrics.items()))
+        # columns follow the course results template (sheet "Part 1 - Baselines")
+        results.append({
+            "Model": model, "Variant / settings": variant, "Similarity": similarity, "k": k,
+            "Precision@10": round(metrics[f"precision@{K}"], 4), "Recall@10": round(metrics[f"recall@{K}"], 4),
+            "NDCG@10": round(metrics[f"ndcg@{K}"], 4), "Catalogue coverage": round(metrics["coverage"], 4),
+            "Seed": args.seed,
+            "Notes": f"fit on train+val, test users={metrics['n_users']}, cold users skipped={metrics['n_cold_users_skipped']}",
+        })
+        print(f"test {variant}: " + ", ".join(f"{key}={value:.4f}" if isinstance(value, float) else f"{key}={value}" for key, value in metrics.items()))
     pd.DataFrame(results).to_csv(args.out_dir / "results.csv", index=False)
 
 

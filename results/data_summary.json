@@ -1,0 +1,31 @@
+{
+  "users": 6040,
+  "items": 3706,
+  "interactions": 1000209,
+  "density": 0.044683625622312845,
+  "first_rating": "2000-04-25 23:05:32",
+  "last_rating": "2003-02-28 17:49:50",
+  "ratings_per_user_min_median_max": [
+    20,
+    96.0,
+    2314
+  ],
+  "ratings_per_item_min_median_max": [
+    1,
+    123.5,
+    3428
+  ],
+  "items_with_less_than_10_ratings": 446,
+  "share_of_ratings_going_to": {
+    "top_1%_items": 0.08731175184386464,
+    "top_10%_items": 0.4438112434501189,
+    "top_20%_items": 0.6516408070713221
+  },
+  "rating_share": {
+    "1": 0.05616226208722377,
+    "2": 0.1075345252842156,
+    "3": 0.2611424212339621,
+    "4": 0.34889808030121705,
+    "5": 0.22626271109338147
+  }
+}

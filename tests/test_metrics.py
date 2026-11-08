@@ -1,4 +1,3 @@
-
 """Unit tests for recommender evaluation metrics."""
 
 import numpy as np
@@ -10,6 +9,7 @@ from run_all import (
     ndcg_at_k,
     catalogue_coverage,
     temporal_split,
+    index_data,
 )
 
 
@@ -67,8 +67,6 @@ def test_temporal_split():
 
 
 def test_full_catalogue():
-    from run_all import index_data
-
     ratings = pd.DataFrame({
         "user": [1, 2],
         "item": [10, 20],

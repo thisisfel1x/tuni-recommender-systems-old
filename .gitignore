@@ -13,8 +13,9 @@ env/
 .idea/
 .vscode/
 
-# Generated outputs are recreated by run_all.py
+# Generated figures are recreated by run_all.py (results/ is committed)
 figures/*
 !figures/.gitkeep
-results/*
-!results/.gitkeep
+
+# Office lock files
+~$*
