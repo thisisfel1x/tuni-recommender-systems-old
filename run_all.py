@@ -323,7 +323,6 @@ def main() -> None:
     results = []
     for model, variant, similarity, k, score in models:
         metrics = evaluate(score, full_data, test)
-        # columns follow the course results template (sheet "Part 1 - Baselines")
         results.append({
             "Model": model, "Variant / settings": variant, "Similarity": similarity, "k": k,
             "Precision@10": round(metrics[f"precision@{K}"], 4), "Recall@10": round(metrics[f"recall@{K}"], 4),
