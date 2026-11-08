@@ -157,10 +157,13 @@ def catalogue_coverage(all_lists, n_items: int) -> float:
 
 
 # Step 4: models
-def index_data(fit: pd.DataFrame) -> SimpleNamespace:
+def index_data(fit: pd.DataFrame, catalogue_ids=None) -> SimpleNamespace:
     """Map ids to matrix indices (ids have gaps) and remember which items each user has seen."""
     user_ids = np.sort(fit["user"].unique())
-    item_ids = np.sort(fit["item"].unique())  # candidate set = all items in the fit data
+    if catalogue_ids is None:
+        item_ids = np.sort(fit["item"].unique())
+    else:
+        item_ids = np.sort(np.unique(catalogue_ids))
     u = np.searchsorted(user_ids, fit["user"].to_numpy())
     i = np.searchsorted(item_ids, fit["item"].to_numpy())
     shape = (len(user_ids), len(item_ids))
@@ -263,6 +266,16 @@ def main() -> None:
 
     # data
     ratings = load_ratings(args.data_dir)
+    movies = pd.read_csv(
+        args.data_dir / "movies.dat",
+        sep="::",
+        engine="python",
+        header=None,
+        names=["item", "title", "genres"],
+        encoding="latin-1",
+    )
+
+    catalogue_ids = movies["item"].to_numpy()
     summary = summarize(ratings)
     (args.out_dir / "data_summary.json").write_text(json.dumps(summary, indent=2, default=str))
     make_figures(ratings, args.fig_dir)
@@ -275,7 +288,7 @@ def main() -> None:
     print("\n" + report.to_string(index=False))
 
     # tuning on validation only: fit on train, evaluate on val
-    train_data = index_data(train)
+    train_data = index_data(train, catalogue_ids)
     tuning = []
     for window, min_rating in POPULARITY_VARIANTS:
         metrics = evaluate(most_popular(train_data, window, min_rating), train_data, val)
@@ -291,7 +304,7 @@ def main() -> None:
     print(f"\nBest ItemKNN on validation: k={best['k']}, similarity={best['similarity']}")
 
     # final: refit on train + val with the chosen settings, evaluate once on test
-    full_data = index_data(pd.concat([train, val]))
+    full_data = index_data(pd.concat([train, val]), catalogue_ids)
     models = {popularity_name(w, m): most_popular(full_data, w, m) for w, m in POPULARITY_VARIANTS}
     models[f"ItemKNN(k={best['k']}, {best['similarity']})"] = item_knn(full_data, best["k"], best["similarity"])
     results = []
