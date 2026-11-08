@@ -1,7 +1,6 @@
 # Recommender Systems Course Project, Group 15
 
-Charleen Lang, Felix Weber, Vinicius Martins (Tampere University).
-Evaluation of recommender baselines on MovieLens 1M.
+Charleen Lang, Felix Weber, Vinicius Martins
 
 ## Setup
 
